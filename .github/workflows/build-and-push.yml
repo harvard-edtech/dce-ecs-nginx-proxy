@@ -1,0 +1,34 @@
+name: Build and Publish Docker image
+on:
+  push:
+    branches: [ master ]
+
+env:
+  REPOSITORY_NAME: hdce/nginx-ssl-proxy
+
+jobs:
+  build_and_push:
+    runs-on: ubuntu-latest
+    steps:
+
+      - name: Check out the repo
+        uses: actions/checkout@v2
+
+      - name: Push to Docker Hub
+        uses: docker/build-push-action@v1
+        with:
+          username: ${{ secrets.DOCKER_HUB_USERNAME }}
+          password: ${{ secrets.DOCKER_HUB_AUTH_TOKEN }}
+          repository: ${{ env.REPOSITORY_NAME }}
+          tag_with_ref: true
+
+      - name: Push to ECR
+        uses: kciter/aws-ecr-action@v1
+        with:
+          access_key_id:  ${{ secrets.PUSH_TO_ECR_AWS_ACCESS_KEY_ID }}
+          secret_access_key: ${{ secrets.PUSH_TO_ECR_AWS_SECRET_ACCESS_KEY }}
+          account_id: ${{ secrets.AWS_ACCOUNT_ID }}
+          repo: ${{ env.REPOSITORY_NAME }}
+          region: ${{ secrets.AWS_DEFAULT_REGION }}
+          tags: latest,${{ github.sha }}
+          create_repo: true
