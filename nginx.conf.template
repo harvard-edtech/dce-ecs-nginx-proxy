@@ -33,10 +33,18 @@ http {
   # use session cache shared among all workers
   ssl_session_cache    shared:SSL:1m;
 
+  log_format main '$remote_addr - $remote_user [$time_local] '
+                      '"$request" $status $body_bytes_sent '
+                      '"$http_referer" "$http_user_agent" '
+                      '$request_time $upstream_response_time';
+
   server {
     listen 443 ssl;
     ssl_certificate /etc/nginx/ssl/cert.pem;
     ssl_certificate_key /etc/nginx/ssl/key.pem;
+
+    # this log file is symlinked to stdout in the nginx base Dockerfile
+    access_log /var/log/nginx/access.log main;
 
     location / {
       # Reject requests with unsupported HTTP method
