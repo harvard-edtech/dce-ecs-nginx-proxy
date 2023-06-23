@@ -16,6 +16,7 @@ envsubst '${APP_PORT} ${APP_HOST} ${VPC_CIDR}' < /etc/nginx/nginx.conf.template 
 mkdir /etc/nginx/ssl
 openssl req -subj "/CN=${APP_HOST}" -x509 -newkey rsa:4096 -nodes -days 365 \
   -keyout /etc/nginx/ssl/key.pem \
-  -out /etc/nginx/ssl/cert.pem
+  -out /etc/nginx/ssl/cert.pem \
+  -verbose
 
 exec "$@"
