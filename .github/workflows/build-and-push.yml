@@ -25,5 +25,5 @@ jobs:
           region: ${{ secrets.AWS_DEFAULT_REGION }}
           tags: sha-${{ github.sha }}
           add_branch_tag: true
-          add_package_version_tag_for_branch: t/DEPLOY-90-proxy-buffer-size
+          add_package_version_tag_for_branch: main
           slack_webhook_url: ${{ secrets.PUSH_TO_ECR_SLACK_NOTIFY_WEBHOOK_URL }}
