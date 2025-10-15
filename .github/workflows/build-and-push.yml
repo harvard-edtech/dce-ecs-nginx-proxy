@@ -1,11 +1,26 @@
-name: Build and Publish Docker image
+# this will build and push an image to an ECR repo identified by
+# the REPOSITORY_NAME env setting. Any branch matching the pattern
+# */*, e.g., bugfix/some-bug, will be built and the resulting image
+# tagged, e.g., bugfix-some-bug
+
+name: Build and Push Image to ECR
+
 on:
   workflow_dispatch:
   push:
-    branches: [main, stage, '*/*']
+    branches: [main, stage, "*/*"]
 
 env:
   REPOSITORY_NAME: hdce/nginx-ssl-proxy
+  VERSION_TAG_THIS_BRANCH: main
+
+concurrency:
+  group: ${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  id-token: write
+  contents: read
 
 jobs:
   build_and_push:
@@ -14,16 +29,162 @@ jobs:
       - name: Check out the repo
         uses: actions/checkout@v4
 
-      - name: Push to ECR
-        uses: harvard-edtech/dce-ecr-action@v1.3
-        id: build_and_push
+      - name: Configure AWS credentials using OIDC
+        uses: aws-actions/configure-aws-credentials@v4
         with:
-          access_key_id: ${{ secrets.PUSH_TO_ECR_AWS_ACCESS_KEY_ID }}
-          secret_access_key: ${{ secrets.PUSH_TO_ECR_AWS_SECRET_ACCESS_KEY }}
-          account_id: ${{ secrets.AWS_ACCOUNT_ID }}
-          repo: ${{ env.REPOSITORY_NAME }}
-          region: ${{ secrets.AWS_DEFAULT_REGION }}
-          tags: sha-${{ github.sha }}
-          add_branch_tag: true
-          add_package_version_tag_for_branch: main
-          slack_webhook_url: ${{ secrets.PUSH_TO_ECR_SLACK_NOTIFY_WEBHOOK_URL }}
+          role-to-assume: ${{ secrets.AWS_PUSH_TO_ECR_OIDC_ROLE }}
+          aws-region: ${{ secrets.AWS_DEFAULT_REGION }}
+
+      - name: Log in to Amazon ECR
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ secrets.AWS_ACCOUNT_ID }}.dkr.ecr.${{ secrets.AWS_DEFAULT_REGION }}.amazonaws.com
+          username: AWS
+          password: ${{ steps.configure-aws-credentials.outputs.aws-session-token }}
+
+      - name: Extract branch name
+        id: extract_branch
+        run: |
+          ref="${GITHUB_REF#refs/heads/}"
+          sanitized=$(echo "$ref" | tr '/' '-')
+          echo "TAG=$sanitized" >> $GITHUB_OUTPUT
+
+      - name: Read version from package.json
+        id: get_version
+        run: |
+          VERSION=$(jq -r .version package.json)
+          echo "PACKAGE_VERSION=$VERSION" >> $GITHUB_OUTPUT
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build and push Docker image
+        id: build_push
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: true
+          provenance: false
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+          tags: |
+            ${{ secrets.AWS_ACCOUNT_ID }}.dkr.ecr.${{ secrets.AWS_DEFAULT_REGION }}.amazonaws.com/${{ env.REPOSITORY_NAME }}:${{ steps.extract_branch.outputs.TAG }}
+            ${{ secrets.AWS_ACCOUNT_ID }}.dkr.ecr.${{ secrets.AWS_DEFAULT_REGION }}.amazonaws.com/${{ env.REPOSITORY_NAME }}:sha-${{ github.sha }}
+            ${{ github.ref == format('refs/heads/{0}', env.VERSION_TAG_THIS_BRANCH) && format('{0}.dkr.ecr.{1}.amazonaws.com/{2}:{3}', secrets.AWS_ACCOUNT_ID, secrets.AWS_DEFAULT_REGION, env.REPOSITORY_NAME, steps.get_version.outputs.PACKAGE_VERSION) || '' }}
+
+      - name: Run Trivy vulnerability scanner
+        uses: aquasecurity/trivy-action@master
+        with:
+          image-ref: ${{ secrets.AWS_ACCOUNT_ID }}.dkr.ecr.${{ secrets.AWS_DEFAULT_REGION }}.amazonaws.com/${{ env.REPOSITORY_NAME }}:${{ steps.extract_branch.outputs.TAG }}
+          format: "json"
+          output: "trivy-results.json"
+          severity: "CRITICAL,HIGH"
+          ignore-unfixed: true
+          trivyignores: .reviewed-cves
+
+      - name: Upload Trivy results as artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: trivy-results-${{ github.run_id }}
+          path: trivy-results.json
+          retention-days: 30
+
+      - name: Parse Trivy results and send to Slack
+        if: always()
+        run: |
+          if [ -f trivy-results.json ]; then
+            # Parse Trivy results
+            CRITICAL_COUNT=$(jq '[.Results[]?.Vulnerabilities[]? | select(.Severity == "CRITICAL")] | length' trivy-results.json)
+            HIGH_COUNT=$(jq '[.Results[]?.Vulnerabilities[]? | select(.Severity == "HIGH")] | length' trivy-results.json)
+
+            # Handle null values
+            CRITICAL_COUNT=${CRITICAL_COUNT:-0}
+            HIGH_COUNT=${HIGH_COUNT:-0}
+
+            # Determine color based on severity
+            if [ "$CRITICAL_COUNT" -gt 0 ]; then
+              COLOR="danger"
+              STATUS="🔴 CRITICAL vulnerabilities found"
+            elif [ "$HIGH_COUNT" -gt 0 ]; then
+              COLOR="warning"
+              STATUS="🟡 HIGH vulnerabilities found"
+            else
+              COLOR="good"
+              STATUS="✅ No significant vulnerabilities found"
+            fi
+
+            # Get top 10 critical/high vulnerabilities for summary, sorted with CRITICAL first
+            CRITICAL_VULNS=$(jq -r '.Results[]?.Vulnerabilities[]? | select(.Severity == "CRITICAL") | "\(.Severity): \(.VulnerabilityID) in \(.PkgName)" | .[0:80]' trivy-results.json)
+            HIGH_VULNS=$(jq -r '.Results[]?.Vulnerabilities[]? | select(.Severity == "HIGH") | "\(.Severity): \(.VulnerabilityID) in \(.PkgName)" | .[0:80]' trivy-results.json)
+            TOP_VULNS=$(echo -e "$CRITICAL_VULNS\n$HIGH_VULNS" | grep -v '^$' | head -10 | sed 's/^/• /' | tr '\n' '\n')
+
+            # Create Slack payload
+            PAYLOAD=$(cat <<EOF
+          {
+            "attachments": [
+              {
+                "color": "$COLOR",
+                "title": "Trivy Security Scan Results",
+                "fields": [
+                  {
+                    "title": "Repository",
+                    "value": "${{ github.repository }}",
+                    "short": true
+                  },
+                  {
+                    "title": "Branch",
+                    "value": "${{ steps.extract_branch.outputs.TAG }}",
+                    "short": true
+                  },
+                  {
+                    "title": "Image Tag",
+                    "value": "${{ steps.extract_branch.outputs.TAG }}",
+                    "short": true
+                  },
+                  {
+                    "title": "Commit",
+                    "value": "${{ github.sha }}",
+                    "short": true
+                  },
+                  {
+                    "title": "Workflow Run",
+                    "value": "<https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}|View Details>",
+                    "short": true
+                  },
+                  {
+                    "title": "Download Results",
+                    "value": "<https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}|Download trivy-results.json>",
+                    "short": true
+                  },
+                  {
+                    "title": "Status",
+                    "value": "$STATUS",
+                    "short": false
+                  },
+                  {
+                    "title": "Vulnerability Counts",
+                    "value": "Critical: $CRITICAL_COUNT | High: $HIGH_COUNT",
+                    "short": false
+                  },
+                  {
+                    "title": "Top Critical/High Vulnerabilities",
+                    "value": "$TOP_VULNS",
+                    "short": false
+                  }
+                ],
+                "footer": "GitHub Actions",
+                "ts": $(date +%s)
+              }
+            ]
+          }
+          EOF
+            )
+
+            # Send to Slack
+            curl -X POST -H 'Content-type: application/json' \
+              --data "$PAYLOAD" \
+              "${{ secrets.SLACK_WEBHOOK_URL }}"
+          else
+            echo "Trivy results file not found"
+          fi
