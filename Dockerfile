@@ -1,4 +1,5 @@
-FROM nginx:stable-alpine
+ARG BASE_IMAGE=nginx:stable-alpine
+FROM ${BASE_IMAGE}
 
 # add openssl so we can generate a cert at runtime
 RUN apk add --no-cache openssl

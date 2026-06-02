@@ -10,64 +10,24 @@ on:
   push:
     branches: [main, stage, "*/*"]
 
-env:
-  REPOSITORY_NAME: hdce/nginx-ssl-proxy
-  VERSION_TAG_THIS_BRANCH: main
-
-concurrency:
-  group: ${{ github.ref }}
-  cancel-in-progress: true
-
 permissions:
-  id-token: write
   contents: read
+  actions: read
 
 jobs:
   build_and_push:
-    runs-on: ubuntu-latest
-    steps:
-      - name: Check out the repo
-        uses: actions/checkout@v6
-
-      - name: Configure AWS credentials using OIDC
-        uses: aws-actions/configure-aws-credentials@v5
-        with:
-          role-to-assume: ${{ secrets.AWS_PUSH_TO_ECR_OIDC_ROLE }}
-          aws-region: ${{ secrets.AWS_DEFAULT_REGION }}
-
-      - name: Log in to Amazon ECR
-        uses: docker/login-action@v3
-        with:
-          registry: ${{ secrets.AWS_ACCOUNT_ID }}.dkr.ecr.${{ secrets.AWS_DEFAULT_REGION }}.amazonaws.com
-          username: AWS
-          password: ${{ steps.configure-aws-credentials.outputs.aws-session-token }}
-
-      - name: Extract branch name
-        id: extract_branch
-        run: |
-          ref="${GITHUB_REF#refs/heads/}"
-          sanitized=$(echo "$ref" | tr '/' '-')
-          echo "TAG=$sanitized" >> $GITHUB_OUTPUT
-
-      - name: Read version from package.json
-        id: get_version
-        run: |
-          VERSION=$(<version.txt)
-          echo "PACKAGE_VERSION=$VERSION" >> $GITHUB_OUTPUT
-
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
-
-      - name: Build and push Docker image
-        id: build_push
-        uses: docker/build-push-action@v6
-        with:
-          context: .
-          push: true
-          provenance: false
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
-          tags: |
-            ${{ secrets.AWS_ACCOUNT_ID }}.dkr.ecr.${{ secrets.AWS_DEFAULT_REGION }}.amazonaws.com/${{ env.REPOSITORY_NAME }}:${{ steps.extract_branch.outputs.TAG }}
-            ${{ secrets.AWS_ACCOUNT_ID }}.dkr.ecr.${{ secrets.AWS_DEFAULT_REGION }}.amazonaws.com/${{ env.REPOSITORY_NAME }}:sha-${{ github.sha }}
-            ${{ github.ref == format('refs/heads/{0}', env.VERSION_TAG_THIS_BRANCH) && format('{0}.dkr.ecr.{1}.amazonaws.com/{2}:{3}', secrets.AWS_ACCOUNT_ID, secrets.AWS_DEFAULT_REGION, env.REPOSITORY_NAME, steps.get_version.outputs.PACKAGE_VERSION) || '' }}
+    name: "Build and push image to ECR"
+    permissions:
+      id-token: write
+      contents: read
+      actions: read
+    uses: harvard-dce/dce-build-and-push/.github/workflows/reusable-build-and-push.yml@main
+    with:
+      repository_name: hdce/nginx-ssl-proxy
+      version_tag_this_branch: main
+      base_image_name: nginx:stable-alpine
+      version_command: "tr -d '[:space:]' < ./version.txt"
+    secrets:
+      AWS_PUSH_TO_ECR_OIDC_ROLE: ${{ secrets.AWS_PUSH_TO_ECR_OIDC_ROLE }}
+      AWS_DEFAULT_REGION: ${{ secrets.AWS_DEFAULT_REGION }}
+      AWS_ACCOUNT_ID: ${{ secrets.AWS_ACCOUNT_ID }}
