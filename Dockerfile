@@ -1,4 +1,4 @@
-ARG BASE_IMAGE=nginx:stable-alpine
+ARG BASE_IMAGE=nginx:1.30.2-alpine
 FROM ${BASE_IMAGE}
 
 # add openssl so we can generate a cert at runtime

@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.4.0] - 2026-06-04
+
+### Modified
+- update and pin nginx base image to 1.30.2
+- now using shared dce-build-and-push github workflow
+
+## [1.3.0]
+
+### Modified
+- supported TLS versions limited to TLSv1.2 and TLSv1.3.
+
 ## [1.2.0] - 2025-01-23
 
 ### Added

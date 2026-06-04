@@ -13,7 +13,7 @@ populate the `ngnix.conf` file and generate a self-signed SSL cert.
 
 ### docker image build
 
-Pushes to `master` will trigger a rebuild of the image and a push to an Amazon ECR repository. This workflow depends on three github Secrets which are assumed to be defined at the organizational level:
+Pushes to `main` will trigger a rebuild of the image and a push to an Amazon ECR repository. This workflow depends on three github Secrets which are assumed to be defined at the organizational level:
 
 * AWS_DEFAULT_REGION
 * PUSH_TO_ECR_AWS_ACCESS_KEY_ID
