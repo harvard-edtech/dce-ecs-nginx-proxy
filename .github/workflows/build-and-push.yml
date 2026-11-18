@@ -26,6 +26,7 @@ jobs:
       repository_name: hdce/nginx-ssl-proxy
       version_tag_this_branch: main
       base_image_name: nginx:1.30.6-alpine
+      tag_latest: true
       version_command: "tr -d '[:space:]' < ./version.txt"
     secrets:
       AWS_PUSH_TO_ECR_OIDC_ROLE: ${{ secrets.AWS_PUSH_TO_ECR_OIDC_ROLE }}
