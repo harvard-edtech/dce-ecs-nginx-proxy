@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.5.1] - 2026-11-18
+
+### Fixed
+- workflow `base_image_name` now matches the Dockerfile (`nginx:1.30-alpine`); 1.5.0 was still built on 1.30.2
+
+## [1.5.0] - 2026-11-18
+
+### Modified
+- nginx base image pinned at the minor version level (1.30)
+- image is now also tagged `latest`
+
 ## [1.4.0] - 2026-06-04
 
 ### Modified
