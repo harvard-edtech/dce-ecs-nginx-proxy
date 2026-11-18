@@ -27,6 +27,7 @@ jobs:
       version_tag_this_branch: main
       base_image_name: nginx:1.30.2-alpine
       version_command: "tr -d '[:space:]' < ./version.txt"
+      tag_latest: true
     secrets:
       AWS_PUSH_TO_ECR_OIDC_ROLE: ${{ secrets.AWS_PUSH_TO_ECR_OIDC_ROLE }}
       AWS_DEFAULT_REGION: ${{ secrets.AWS_DEFAULT_REGION }}
